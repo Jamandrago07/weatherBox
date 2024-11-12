@@ -5,13 +5,17 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
 #include "time.h"
 
 SPIClass *myspi = NULL;
 
 //Define WebServer Port
-WiFiServer server(80);
+//WiFiServer server(80);
+AsyncWebServer server(80);
 String header;
+const char* PARAM_MESSAGE = "message";
 
 
 #ifdef ARDUINO_ADAFRUIT_FEATHER_RP2040_THINKINK // detects if compiling for
@@ -48,9 +52,6 @@ float Pre=0;
 float Hum=0;
 float Alt=0;
 
-String header;
-
-
 const char* ssid     = "KnockForFreeHugs";
 const char* password = "FestiveWallaby13CC";
 const char* ntpServer = "time.nist.gov";
@@ -65,6 +66,10 @@ struct tm timeinfo;
  //####################################################################
  //Functions
 
+ void notFound(AsyncWebServerRequest *request) {
+    request->send(404, "text/plain", "Not found");
+}
+
 void ReadBME(){
   Tem=0.0f;
   Pre=0.0f;
@@ -74,6 +79,12 @@ void ReadBME(){
   Pre=bme.readPressure()/ 100.0F;
   Hum=bme.readHumidity();
   Alt=abs(bme.readAltitude(SEALEVELPRESSURE_HPA));
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to obtain time");
+    return;
+  }
 }
 
 void printValues(){
@@ -114,25 +125,47 @@ void printValues(){
 void ConnectWiFi()
 {
   String td;
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid,password);
   while (WiFi.status()!=WL_CONNECTED)
   {
     delay(500);
     Serial.print(".");
   }
-  delay(500);
-
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  if (!getLocalTime(&timeinfo))
-  {
-    Serial.println("Failed to obtain time");
-    return;
-  }  
   //IP_Address=WiFi.localIP();
   Serial.println(WiFi.localIP());
   //WiFi.disconnect(true);
   //WiFi.mode(WIFI_OFF);
   delay(500);
+      server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", "Hello, world");
+    });
+
+    // Send a GET request to <IP>/get?message=<message>
+    server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
+        String message;
+        if (request->hasParam(PARAM_MESSAGE)) {
+            message = request->getParam(PARAM_MESSAGE)->value();
+        } else {
+            message = "No message sent";
+        }
+        request->send(200, "text/plain", "Hello, GET: " + message);
+    });
+
+    // Send a POST request to <IP>/post with a form field message set to <message>
+    server.on("/post", HTTP_POST, [](AsyncWebServerRequest *request){
+        String message;
+        if (request->hasParam(PARAM_MESSAGE, true)) {
+            message = request->getParam(PARAM_MESSAGE, true)->value();
+        } else {
+            message = "No message sent";
+        }
+        request->send(200, "text/plain", "Hello, POST: " + message);
+    });
+
+    server.onNotFound(notFound);
+
+    server.begin();
 }
 
  //####################################################################
@@ -150,6 +183,8 @@ void setup(void) {
 
   display.begin();
   Serial.println("Initialized and COnnected to WiFi");
+
+
 }
 
 void loop() { 
